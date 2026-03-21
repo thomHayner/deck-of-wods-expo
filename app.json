@@ -1,18 +1,20 @@
 {
   "expo": {
-    "name": "deck-of-wods-expo",
-    "slug": "deck-of-wods-expo",
+    "name": "Deck of WODs",
+    "slug": "deck-of-wods-expo-go",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "scheme": "deckofwods",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.deckofwods.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +23,27 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "package": "com.deckofwods.app",
       "predictiveBackGestureEnabled": false
     },
     "web": {
+      "bundler": "metro",
+      "output": "spa",
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "./app.plugin.js"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6776dc1d-fc39-4968-96da-bc235a46449d"
+      }
+    },
+    "owner": "thomhayner"
   }
 }

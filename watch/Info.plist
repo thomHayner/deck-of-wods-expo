@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Modern SwiftUI watch app lifecycle (watchOS 7+) -->
+    <key>WKApplication</key>
+    <true/>
+    <!-- Links this watch app to the companion iPhone app -->
+    <key>WKCompanionAppBundleIdentifier</key>
+    <string>com.deckofwods.app</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>Deck of WODs</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>NSHealthShareUsageDescription</key>
+    <string>Deck of WODs reads your heart rate and calories burned during workouts.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>Deck of WODs saves completed workouts to Apple Health.</string>
+
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>4</integer>
+    </array>
+</dict>
+</plist>

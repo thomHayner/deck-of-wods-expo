@@ -1,0 +1,18 @@
+{
+  "name": "wear-os-connector",
+  "version": "1.0.0",
+  "description": "Local Expo module for Wear OS Wearable Data Layer communication",
+  "main": "index",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "sourceDir": "android",
+        "packageName": "expo.modules.wearosconnector"
+      }
+    }
+  }
+}
