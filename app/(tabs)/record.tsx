@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useFocusEffect } from '@react-navigation/native'
+import { useFocusEffect } from 'expo-router'
 import { router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
@@ -86,15 +86,20 @@ export default function RecordScreen() {
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>('km')
   const [freeSummary, setFreeSummary] = useState<FreeSummary | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // Use refs to avoid stale closure in timer
+  // Use refs to avoid stale closure in timer and useFocusEffect cleanup
   const distanceRef   = useRef(0)
   const caloriesRef   = useRef(0)
   const elapsedRef    = useRef(0)
   const workoutStart  = useRef<Date>(new Date())
+  const viewRef       = useRef<PageView>('hub')
+  const isPausedRef   = useRef(false)
+  const saveTickRef   = useRef(0)
 
   distanceRef.current = distance
   caloriesRef.current = calories
   elapsedRef.current  = elapsedTime
+  viewRef.current     = view
+  isPausedRef.current = isPaused
 
   useFocusEffect(
     useCallback(() => {
@@ -111,6 +116,8 @@ export default function RecordScreen() {
           }
           const saved = await loadDeckState()
           if (saved) { setDeckConfig(saved.deckConfig); workoutStart.current = new Date(); setView('deck-active'); return }
+          // active_workout says deck but nothing to restore — clear the stale lock
+          await clearActiveWorkout()
         } else if (active) {
           const saved = await loadFreeState()
           if (saved && !saved.completed) {
@@ -122,6 +129,8 @@ export default function RecordScreen() {
             setView('free-active')
             return
           }
+          // active_workout says free but nothing to restore — clear the stale lock
+          await clearActiveWorkout()
         }
         const pendingRaw = await AsyncStorage.getItem('pending_deck_config')
         if (pendingRaw) {
@@ -131,21 +140,51 @@ export default function RecordScreen() {
           setView('deck-active')
         }
         getProfile().then(p => { if (p) setDistanceUnit(p.unit_system === 'imperial' ? 'miles' : 'km') }).catch(() => {})
+        // If stuck on a complete/active screen with no recoverable workout, reset to hub
+        if (viewRef.current !== 'hub') {
+          setView('hub'); setDeckStats(null); setFreeSummary(null)
+        }
       }
       init()
-      return () => { if (timerRef.current) clearInterval(timerRef.current) }
+      return () => {
+        if (timerRef.current) clearInterval(timerRef.current)
+        // Persist free workout state when navigating away so it can be resumed
+        if (viewRef.current === 'free-active') {
+          saveFreeState({
+            elapsedTime: elapsedRef.current,
+            distance:    distanceRef.current,
+            calories:    caloriesRef.current,
+            isPaused:    true,
+            savedAt:     Date.now(),
+            completed:   false,
+          })
+        }
+      }
     }, [])
   )
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     if (view === 'free-active' && !isPaused) {
+      saveTickRef.current = 0
       timerRef.current = setInterval(() => {
         const speed = freeType === 'cycling' ? 0.007 : freeType === 'running' ? 0.003 : 0.002
         const calRate = freeType === 'cycling' ? 0.12 : freeType === 'running' ? 0.15 : 0.08
         setElapsedTime(t => t + 1)
         setDistance(d => d + speed)
         setCalories(c => c + calRate)
+        // Persist every 10 seconds so backgrounding/crash can be recovered
+        saveTickRef.current++
+        if (saveTickRef.current % 10 === 0) {
+          saveFreeState({
+            elapsedTime: elapsedRef.current,
+            distance:    distanceRef.current,
+            calories:    caloriesRef.current,
+            isPaused:    false,
+            savedAt:     Date.now(),
+            completed:   false,
+          })
+        }
       }, 1000)
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
@@ -186,7 +225,9 @@ export default function RecordScreen() {
       })
     } catch (e) { console.error(e) }
     await clearFreeState(); await clearActiveWorkout()
-    setSaving(false); router.push('/you')
+    setSaving(false)
+    setView('hub'); setFreeSummary(null)
+    router.push('/you')
   }
 
   async function handleDeckComplete(stats: DeckStats) {
@@ -216,7 +257,9 @@ export default function RecordScreen() {
       })
     } catch (e) { console.error(e) }
     await clearDeckState(); await clearActiveWorkout(); await AsyncStorage.removeItem('pending_deck_config')
-    setSaving(false); router.push('/you')
+    setSaving(false)
+    setView('hub'); setDeckStats(null)
+    router.push('/you')
   }
 
   // ── Hub ─────────────────────────────────────────────────────────────────────
@@ -326,7 +369,18 @@ export default function RecordScreen() {
 
         <View className="flex-row gap-3">
           <Pressable
-            onPress={() => setIsPaused(p => !p)}
+            onPress={() => {
+              const nowPaused = !isPausedRef.current
+              setIsPaused(nowPaused)
+              saveFreeState({
+                elapsedTime: elapsedRef.current,
+                distance:    distanceRef.current,
+                calories:    caloriesRef.current,
+                isPaused:    nowPaused,
+                savedAt:     Date.now(),
+                completed:   false,
+              })
+            }}
             className="flex-1 flex-row items-center justify-center gap-2 bg-gray-200 rounded-xl py-4"
           >
             {isPaused ? <Play size={20} color="#374151" /> : <Pause size={20} color="#374151" />}

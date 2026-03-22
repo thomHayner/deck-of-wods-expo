@@ -83,6 +83,17 @@ export function DeckWorkoutSession({ config, onComplete, onCancel }: Props) {
         setDeck(built)
         setIsRunning(true)
         await setActiveWorkout('deck')
+        // Save immediately so navigating away before completing any card still allows resumption
+        await saveDeckState({
+          deck: built,
+          deckConfig: config,
+          completedCards: [],
+          currentIndex: 0,
+          elapsedTime: 0,
+          repsByExercise: {},
+          isRunning: true,
+          savedAt: Date.now(),
+        })
       }
       setInitialized(true)
     }

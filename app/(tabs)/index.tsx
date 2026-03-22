@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { ScrollView, View, Text, Pressable } from 'react-native'
+import Svg, { Polyline, Circle as SvgCircle } from 'react-native-svg'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
 import {
@@ -39,6 +40,379 @@ function formatDate(dateStr: string) {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+function formatDurationShort(seconds: number) {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
+function formatDistance(km: number, unitSystem: 'metric' | 'imperial') {
+  if (unitSystem === 'imperial') return `${(km * 0.621371).toFixed(1)} mi`
+  return `${km.toFixed(1)} km`
+}
+
+const WORKOUT_TYPE_LABELS: Record<string, string> = {
+  running:  'Run',
+  walking:  'Walk',
+  cycling:  'Bike',
+  hiking:   'Hike',
+  deck:     'Deck',
+}
+
+const DISTANCE_TYPES = new Set(['running', 'walking', 'cycling', 'hiking'])
+
+const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+
+function toDateKey(dateStr: string) {
+  return dateStr.slice(0, 10) // "YYYY-MM-DD"
+}
+
+const NUM_WEEKS = 8
+
+function ThisWeekCard({
+  deckSessions,
+  freeSessions,
+  unitSystem,
+}: {
+  deckSessions: DeckSessionRow[]
+  freeSessions: FreeSessionRow[]
+  unitSystem: 'metric' | 'imperial'
+}) {
+  const [selectedType, setSelectedType] = useState('all')
+  const [chartWidth, setChartWidth] = useState(0)
+
+  const today = new Date()
+  const weekStart = getWeekStart(today)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 6)
+  weekEnd.setHours(23, 59, 59, 999)
+
+  // Sessions this week
+  const thisWeekDeck = deckSessions.filter(s => {
+    const d = new Date(s.completed_at); return d >= weekStart && d <= weekEnd
+  })
+  const thisWeekFree = freeSessions.filter(s => {
+    const d = new Date(s.completed_at); return d >= weekStart && d <= weekEnd
+  })
+
+  // Pills: "all" + each type present this week, in a fixed display order
+  const TYPE_ORDER = ['deck', 'running', 'walking', 'cycling', 'hiking']
+  const typesThisWeek = new Set<string>()
+  if (thisWeekDeck.length > 0) typesThisWeek.add('deck')
+  thisWeekFree.forEach(s => typesThisWeek.add(s.workout_type))
+  const pills = ['all', ...TYPE_ORDER.filter(t => typesThisWeek.has(t))]
+
+  // Filtered sessions based on selected pill
+  const filteredDeck = selectedType === 'all' || selectedType === 'deck' ? thisWeekDeck : []
+  const filteredFree = selectedType === 'all'
+    ? thisWeekFree
+    : selectedType === 'deck' ? []
+    : thisWeekFree.filter(s => s.workout_type === selectedType)
+
+  // Metrics
+  const totalActivities = filteredDeck.length + filteredFree.length
+  const totalSeconds    = [...filteredDeck, ...filteredFree].reduce((sum, s) => sum + s.duration_seconds, 0)
+  const totalDistanceKm = filteredFree.reduce((sum, s) => sum + s.distance_km, 0)
+  const totalReps       = filteredDeck.reduce((sum, s) => sum + s.total_reps, 0)
+
+  const showDistance = DISTANCE_TYPES.has(selectedType) ||
+    (selectedType === 'all' && filteredFree.length > 0)
+  const showReps = selectedType === 'deck' ||
+    (selectedType === 'all' && filteredDeck.length > 0)
+
+  // Line chart: last NUM_WEEKS weeks
+  const weeklyData = useMemo(() => {
+    return Array.from({ length: NUM_WEEKS }, (_, i) => {
+      const offset = NUM_WEEKS - 1 - i
+      const wStart = getWeekStart(today)
+      wStart.setDate(wStart.getDate() - offset * 7)
+      const wEnd = new Date(wStart)
+      wEnd.setDate(wEnd.getDate() + 6)
+      wEnd.setHours(23, 59, 59, 999)
+      const inRange = (dateStr: string) => { const d = new Date(dateStr); return d >= wStart && d <= wEnd }
+
+      const dc = (selectedType === 'all' || selectedType === 'deck')
+        ? deckSessions.filter(s => inRange(s.completed_at)).length : 0
+      const fc = selectedType === 'all'
+        ? freeSessions.filter(s => inRange(s.completed_at)).length
+        : selectedType !== 'deck'
+          ? freeSessions.filter(s => s.workout_type === selectedType && inRange(s.completed_at)).length
+          : 0
+      return { count: dc + fc, isCurrentWeek: i === NUM_WEEKS - 1 }
+    })
+  }, [deckSessions, freeSessions, selectedType])
+
+  const maxCount = Math.max(...weeklyData.map(d => d.count), 1)
+  const CHART_H = 72
+  const PAD_Y   = 8
+
+  const getPoint = (i: number, count: number) => ({
+    x: chartWidth === 0 ? 0 : (i / (NUM_WEEKS - 1)) * chartWidth,
+    y: PAD_Y + (1 - count / maxCount) * (CHART_H - PAD_Y * 2),
+  })
+  const points = weeklyData.map((d, i) => getPoint(i, d.count))
+  const polylinePoints = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4">
+        {/* Title */}
+        <Text className="font-semibold text-gray-900 text-base mb-3">This Week</Text>
+
+        {/* Filter pills */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3 -mx-1">
+          <View className="flex-row gap-2 px-1">
+            {pills.map(type => (
+              <Pressable
+                key={type}
+                onPress={() => setSelectedType(type)}
+                className={`px-3 py-1 rounded-full border ${
+                  selectedType === type
+                    ? 'bg-green-600 border-green-600'
+                    : 'bg-white border-gray-200'
+                }`}
+              >
+                <Text className={`text-xs font-medium ${selectedType === type ? 'text-white' : 'text-gray-600'}`}>
+                  {type === 'all' ? 'All' : (WORKOUT_TYPE_LABELS[type] ?? type)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+
+        {/* Metrics row */}
+        <View className="flex-row gap-5 mb-4">
+          <View>
+            <Text className="text-xs text-gray-500 mb-0.5">Activities</Text>
+            <Text className="text-xl font-bold text-gray-900">{totalActivities}</Text>
+          </View>
+          <View>
+            <Text className="text-xs text-gray-500 mb-0.5">Time</Text>
+            <Text className="text-xl font-bold text-gray-900">{formatDurationShort(totalSeconds)}</Text>
+          </View>
+          {showDistance && (
+            <View>
+              <Text className="text-xs text-gray-500 mb-0.5">Distance</Text>
+              <Text className="text-xl font-bold text-gray-900">{formatDistance(totalDistanceKm, unitSystem)}</Text>
+            </View>
+          )}
+          {showReps && (
+            <View>
+              <Text className="text-xs text-gray-500 mb-0.5">Reps</Text>
+              <Text className="text-xl font-bold text-gray-900">{totalReps.toLocaleString()}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Line chart */}
+        <View onLayout={e => setChartWidth(e.nativeEvent.layout.width)} style={{ height: CHART_H }}>
+          {chartWidth > 0 && (
+            <Svg width={chartWidth} height={CHART_H}>
+              <Polyline
+                points={polylinePoints}
+                fill="none"
+                stroke={PRIMARY}
+                strokeWidth={1.5}
+              />
+              {points.map((p, i) => (
+                <SvgCircle
+                  key={i}
+                  cx={p.x}
+                  cy={p.y}
+                  r={weeklyData[i].isCurrentWeek ? 4 : 3}
+                  fill={weeklyData[i].isCurrentWeek ? PRIMARY : '#fff'}
+                  stroke={PRIMARY}
+                  strokeWidth={1.5}
+                />
+              ))}
+            </Svg>
+          )}
+        </View>
+
+        {/* X-axis labels */}
+        <View className="flex-row justify-between mt-1">
+          <Text className="text-xs text-gray-400">{NUM_WEEKS - 1}w ago</Text>
+          <Text className="text-xs text-green-600 font-medium">Now</Text>
+        </View>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Returns the Monday (midnight local) of the week containing `date`. */
+function getWeekStart(date: Date): Date {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  const day = d.getDay() // 0 = Sun
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+  return d
+}
+
+function computeStreak(
+  deckSessions: DeckSessionRow[],
+  freeSessions: FreeSessionRow[],
+  weeklyGoal: number,
+): { streak: number; streakActivities: number } {
+  // Build map: Monday-date-key → workout count for that week
+  const weekCounts = new Map<string, number>()
+  const allDates = [
+    ...deckSessions.map(s => new Date(s.completed_at)),
+    ...freeSessions.map(s => new Date(s.completed_at)),
+  ]
+  for (const d of allDates) {
+    const key = toDateKey(getWeekStart(d).toISOString())
+    weekCounts.set(key, (weekCounts.get(key) ?? 0) + 1)
+  }
+
+  const today = new Date()
+  let streak = 0
+  let streakActivities = 0
+
+  // Start check from Monday of the current week
+  let cursor = getWeekStart(today)
+
+  // Include current week only if its goal is already met
+  const currentKey = toDateKey(cursor.toISOString())
+  if ((weekCounts.get(currentKey) ?? 0) >= weeklyGoal) {
+    streak++
+    streakActivities += weekCounts.get(currentKey)!
+  }
+
+  // Walk backwards through previous full weeks
+  cursor.setDate(cursor.getDate() - 7)
+  while (true) {
+    const key = toDateKey(cursor.toISOString())
+    const count = weekCounts.get(key) ?? 0
+    if (count >= weeklyGoal) {
+      streak++
+      streakActivities += count
+      cursor.setDate(cursor.getDate() - 7)
+    } else {
+      break
+    }
+  }
+
+  return { streak, streakActivities }
+}
+
+function WorkoutCalendar({
+  deckSessions,
+  freeSessions,
+  weeklyWorkoutGoal,
+}: {
+  deckSessions: DeckSessionRow[]
+  freeSessions: FreeSessionRow[]
+  weeklyWorkoutGoal: number
+}) {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = today.getMonth()
+
+  const workoutDays = useMemo(() => {
+    const days = new Set<string>()
+    deckSessions.forEach(s => days.add(toDateKey(s.completed_at)))
+    freeSessions.forEach(s => days.add(toDateKey(s.completed_at)))
+    return days
+  }, [deckSessions, freeSessions])
+
+  const { streak, streakActivities } = useMemo(
+    () => computeStreak(deckSessions, freeSessions, weeklyWorkoutGoal),
+    [deckSessions, freeSessions, weeklyWorkoutGoal],
+  )
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const firstDayOfWeek = new Date(year, month, 1).getDay()
+  const todayKey = toDateKey(today.toISOString())
+  const monthLabel = today.toLocaleString('default', { month: 'long', year: 'numeric' })
+
+  // Build flat cell array: nulls for leading blank days, then 1–daysInMonth
+  const cells: (number | null)[] = Array(firstDayOfWeek).fill(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  const weeks = Array.from({ length: cells.length / 7 }, (_, i) =>
+    cells.slice(i * 7, i * 7 + 7)
+  )
+
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-3">
+        {/* Month title */}
+        <Text className="font-semibold text-gray-900 text-sm mb-3 pl-1">{monthLabel}</Text>
+
+        {/* Streak metrics */}
+        <View className="flex-row gap-6 mb-3 pl-1">
+          <View>
+            <Text className="text-xs text-gray-500 mb-0.5">Current Streak</Text>
+            <View className="flex-row items-baseline gap-1">
+              <Text className="text-xl font-bold text-gray-900">{streak}</Text>
+              <Text className="text-xs text-gray-500">{streak === 1 ? 'wk' : 'wks'}</Text>
+            </View>
+          </View>
+          <View>
+            <Text className="text-xs text-gray-500 mb-0.5">Streak Activities</Text>
+            <View className="flex-row items-baseline gap-1">
+              <Text className="text-xl font-bold text-gray-900">{streakActivities}</Text>
+              <Text className="text-xs text-gray-500">{streakActivities === 1 ? 'workout' : 'workouts'}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Day-of-week headers — 7 day cols + 1 empty goal indicator col */}
+        <View className="flex-row mb-1">
+          {DAY_LABELS.map((label, i) => (
+            <View key={i} className="flex-1 items-center">
+              <Text className="text-xs text-gray-400 font-medium">{label}</Text>
+            </View>
+          ))}
+          <View className="w-8" />
+        </View>
+
+        {/* Calendar grid */}
+        {weeks.map((week, wi) => {
+          // Count workouts in this week row
+          const weekWorkouts = week.filter((day): day is number => day !== null).filter(day => {
+            const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            return workoutDays.has(key)
+          }).length
+
+          const goalMet = weekWorkouts >= weeklyWorkoutGoal
+          const indicatorColor = goalMet ? '#16a34a' : '#e5e7eb'
+
+          return (
+            <View key={wi} className="flex-row">
+              {week.map((day, di) => {
+                if (!day) return <View key={di} className="flex-1 py-1" />
+                const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                const hasWorkout = workoutDays.has(key)
+                const isToday = key === todayKey
+                return (
+                  <View key={di} className="flex-1 items-center py-1">
+                    <View
+                      className={`w-7 h-7 rounded-full items-center justify-center${isToday ? ' bg-green-600' : ''}`}
+                    >
+                      <Text className={`text-xs${isToday ? ' text-white font-bold' : ' text-gray-700'}`}>
+                        {day}
+                      </Text>
+                    </View>
+                    {/* Dot — always reserve space so rows stay uniform height */}
+                    <View className="h-1.5 w-1.5 rounded-full mt-0.5" style={hasWorkout ? { backgroundColor: isToday ? '#86efac' : '#16a34a' } : undefined} />
+                  </View>
+                )
+              })}
+              {/* Goal indicator — 8th column */}
+              <View className="w-8 items-center justify-center pb-1.5">
+                <View className="w-2 h-2 rounded-full" style={{ backgroundColor: indicatorColor }} />
+              </View>
+            </View>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets()
   const healthData = useHealthData()
@@ -47,6 +421,8 @@ export default function HomeScreen() {
   const [stepGoal, setStepGoal] = useState(10000)
   const [calorieGoal, setCalorieGoal] = useState(500)
   const [activeMinutesGoal, setActiveMinutesGoal] = useState(30)
+  const [weeklyWorkoutGoal, setWeeklyWorkoutGoal] = useState(3)
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric')
   const [allDeckSessions, setAllDeckSessions] = useState<DeckSessionRow[]>([])
   const [allFreeSessions, setAllFreeSessions] = useState<FreeSessionRow[]>([])
 
@@ -71,6 +447,8 @@ export default function HomeScreen() {
         setStepGoal(p.step_goal)
         setCalorieGoal(p.calorie_goal)
         setActiveMinutesGoal(p.active_minutes_goal ?? 30)
+        setWeeklyWorkoutGoal(p.weekly_workout_goal ?? 3)
+        setUnitSystem(p.unit_system ?? 'metric')
       }
     }).catch(() => {})
   }, [])
@@ -89,12 +467,7 @@ export default function HomeScreen() {
   // Prefer live HealthKit/Health Connect calories when available
   const todayCalories = healthData.calories > 0 ? healthData.calories : sessionCalories
 
-  const recentMerged = [
-    ...allDeckSessions.map(d => ({ id: d.id, completed_at: d.completed_at, kind: 'deck' as const, raw: d })),
-    ...allFreeSessions.map(f => ({ id: f.id, completed_at: f.completed_at, kind: 'free' as const, raw: f })),
-  ].sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()).slice(0, 3)
-
-  return (
+return (
     <ScrollView
       className="flex-1 bg-gray-50"
       contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
@@ -107,42 +480,44 @@ export default function HomeScreen() {
       </View>
 
       <View className="px-4 gap-5 mt-4">
-        {/* Quick Actions */}
-        <View className="flex-row gap-3">
-          <Pressable className="flex-1" onPress={() => router.push('/deck')}>
-            <Card>
-              <CardContent className="pt-5 pb-4">
-                <View className="flex-row items-start justify-between">
-                  <View>
-                    <View className="w-10 h-10 rounded-xl bg-green-100 items-center justify-center mb-3">
-                      <Layers size={20} color={PRIMARY} />
-                    </View>
-                    <Text className="font-semibold text-gray-900">Deck of WODs</Text>
-                    <Text className="text-sm text-gray-500 mt-0.5">Card-based workout</Text>
-                  </View>
-                  <Play size={18} color={MUTED_FG} />
+        {/* Start Workout Banner */}
+        <Pressable onPress={() => router.push('/record')}>
+          <Card className="bg-green-600 border-green-700">
+            <CardContent className="pt-5 pb-4">
+              {/* Top row */}
+              <View className="flex-row items-center justify-between mb-3">
+                <View className="flex-1 mr-3">
+                  <Text className="text-white font-bold text-xl">Start a Workout</Text>
+                  <Text className="text-green-100 text-sm mt-1">
+                    Choose from card-based decks or track a free activity
+                  </Text>
                 </View>
-              </CardContent>
-            </Card>
-          </Pressable>
-
-          <Pressable className="flex-1" onPress={() => router.push('/record')}>
-            <Card>
-              <CardContent className="pt-5 pb-4">
-                <View className="flex-row items-start justify-between">
-                  <View>
-                    <View className="w-10 h-10 rounded-xl bg-orange-100 items-center justify-center mb-3">
-                      <Dumbbell size={20} color={ACCENT} />
-                    </View>
-                    <Text className="font-semibold text-gray-900">Free Workout</Text>
-                    <Text className="text-sm text-gray-500 mt-0.5">Track any activity</Text>
-                  </View>
-                  <Play size={18} color={MUTED_FG} />
+                <View className="w-10 h-10 rounded-full bg-white/20 items-center justify-center">
+                  <Play size={20} color="white" />
                 </View>
-              </CardContent>
-            </Card>
-          </Pressable>
-        </View>
+              </View>
+              {/* Workout type pills */}
+              <View className="flex-row flex-wrap gap-2">
+                <View className="flex-row items-center bg-white/20 rounded-full px-3 py-1">
+                  <Layers size={12} color="white" />
+                  <Text className="text-white text-xs font-medium ml-1">Deck of WODs</Text>
+                </View>
+                <View className="flex-row items-center bg-white/20 rounded-full px-3 py-1">
+                  <Footprints size={12} color="white" />
+                  <Text className="text-white text-xs font-medium ml-1">Running</Text>
+                </View>
+                <View className="flex-row items-center bg-white/20 rounded-full px-3 py-1">
+                  <Bike size={12} color="white" />
+                  <Text className="text-white text-xs font-medium ml-1">Cycling</Text>
+                </View>
+                <View className="flex-row items-center bg-white/20 rounded-full px-3 py-1">
+                  <Mountain size={12} color="white" />
+                  <Text className="text-white text-xs font-medium ml-1">& more</Text>
+                </View>
+              </View>
+            </CardContent>
+          </Card>
+        </Pressable>
 
         {/* Today's Activity */}
         <Card>
@@ -205,92 +580,12 @@ export default function HomeScreen() {
           </CardContent>
         </Card>
 
-        {/* Recent Workouts */}
-        <View>
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-gray-900">Recent Workouts</Text>
-            <Pressable
-              className="flex-row items-center gap-1"
-              onPress={() => router.push('/history')}
-            >
-              <Text className="text-sm text-gray-500">View all</Text>
-              <ChevronRight size={16} color={MUTED_FG} />
-            </Pressable>
-          </View>
+        {/* This Week */}
+        <ThisWeekCard deckSessions={allDeckSessions} freeSessions={allFreeSessions} unitSystem={unitSystem} />
 
-          <View className="gap-2">
-            {loading ? (
-              <Card>
-                <CardContent className="py-8 items-center">
-                  <Text className="text-gray-500 text-sm">Loading…</Text>
-                </CardContent>
-              </Card>
-            ) : recentMerged.length === 0 ? (
-              <Card>
-                <CardContent className="py-10 items-center">
-                  <View className="w-12 h-12 rounded-xl bg-green-100 items-center justify-center mb-3">
-                    <Layers size={24} color={PRIMARY} />
-                  </View>
-                  <Text className="font-medium text-gray-900">No workouts yet</Text>
-                  <Text className="text-sm text-gray-500 mt-1 mb-4 text-center">
-                    Complete your first workout to see it here.
-                  </Text>
-                  <Pressable
-                    className="bg-green-600 px-4 py-2 rounded-lg flex-row items-center gap-2"
-                    onPress={() => router.push('/deck')}
-                  >
-                    <Play size={16} color="#fff" />
-                    <Text className="text-white font-semibold text-sm">Start your first workout!</Text>
-                  </Pressable>
-                </CardContent>
-              </Card>
-            ) : (
-              recentMerged.map((item) => {
-                if (item.kind === 'deck') {
-                  const s = item.raw as DeckSessionRow
-                  return (
-                    <Card key={item.id}>
-                      <CardContent className="py-3">
-                        <View className="flex-row items-center gap-3">
-                          <View className="w-12 h-12 rounded-xl bg-green-100 items-center justify-center">
-                            <Layers size={24} color={PRIMARY} />
-                          </View>
-                          <View className="flex-1">
-                            <Text className="font-medium text-gray-900">Deck of WODs</Text>
-                            <Text className="text-sm text-gray-500">
-                              {formatDate(s.completed_at)} · {formatDuration(s.duration_seconds)} · {s.total_reps} reps
-                            </Text>
-                          </View>
-                          <ChevronRight size={18} color={MUTED_FG} />
-                        </View>
-                      </CardContent>
-                    </Card>
-                  )
-                }
-                const s = item.raw as FreeSessionRow
-                const FreeIcon = s.workout_type === 'cycling' ? Bike : s.workout_type === 'hiking' ? Mountain : Footprints
-                return (
-                  <Card key={item.id}>
-                    <CardContent className="py-3">
-                      <View className="flex-row items-center gap-3">
-                        <View className="w-12 h-12 rounded-xl bg-orange-100 items-center justify-center">
-                          <FreeIcon size={24} color={ACCENT} />
-                        </View>
-                        <View className="flex-1">
-                          <Text className="font-medium text-gray-900 capitalize">{s.workout_type}</Text>
-                          <Text className="text-sm text-gray-500">
-                            {formatDate(s.completed_at)} · {formatDuration(s.duration_seconds)} · {Math.round(s.calories)} kcal
-                          </Text>
-                        </View>
-                        <ChevronRight size={18} color={MUTED_FG} />
-                      </View>
-                    </CardContent>
-                  </Card>
-                )
-              })
-            )}
-          </View>
-        </View>
+        {/* Workout Calendar */}
+        <WorkoutCalendar deckSessions={allDeckSessions} freeSessions={allFreeSessions} weeklyWorkoutGoal={weeklyWorkoutGoal} />
+
       </View>
     </ScrollView>
   )

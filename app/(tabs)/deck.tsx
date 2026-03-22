@@ -4,7 +4,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
-import { useFocusEffect } from '@react-navigation/native'
+import { useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Layers, Pencil, Play, Plus, Trash2 } from 'lucide-react-native'
 import { Card, CardContent } from '@/components/ui/card'

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
-import { Check, Store, Gift } from 'lucide-react-native'
+import { Check, Gift } from 'lucide-react-native'
+import { supabase } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { COMMUNITY_DECKS } from '@/lib/community-decks'
 import { createDeckConfig } from '@/lib/db/deck-configs'
@@ -115,9 +116,27 @@ function CommunityDeckCard({ deck }: { deck: typeof COMMUNITY_DECKS[number] }) {
   )
 }
 
+function CommunityTab() {
+  return (
+    <View className="items-center">
+    {/* <View> */}
+      <Text className="text-sm text-gray-500 mb-4">
+        Curated by the Deck of WODs team
+      </Text>
+      <View className="gap-3">
+        {COMMUNITY_DECKS.slice(0, 10).map((deck, i) => (
+          <CommunityDeckCard key={i} deck={deck} />
+        ))}
+      </View>
+    </View>
+  )
+}
+          
+
 function PartnerOffersTab() {
   return (
-    <View className="items-center py-16 px-6">
+    <View className="items-center py-12">
+    {/* <View> */}
       <View className="w-16 h-16 rounded-2xl bg-green-100 items-center justify-center mb-4">
         <Gift size={28} color={PRIMARY} />
       </View>
@@ -133,15 +152,30 @@ type Tab = 'community' | 'partners'
 
 export default function MarketplaceScreen() {
   const insets = useSafeAreaInsets()
-  const [activeTab, setActiveTab] = useState<Tab>('community')
+  const [activeTab, setActiveInnerTab] = useState<Tab>('community')
+  const [initials, setInitials] = useState('?')
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const email = data.user?.email ?? ''
+      setInitials(email.charAt(0).toUpperCase() || '?')
+    })
+  }, [])
 
   return (
-    <View className="flex-1 bg-gray-50" style={{ paddingTop: insets.top }}>
+    <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
       {/* Header */}
       <View className="px-4 pt-4 pb-3 bg-white border-b border-gray-200">
-        <View className="flex-row items-center gap-2 mb-3">
-          <Store size={20} color={MUTED} />
-          <Text className="text-xl font-bold text-gray-900">Marketplace</Text>
+        {/* Top row: avatar · title · blank-space */}
+        <View className="flex-row items-center justify-between mb-3">
+          <Pressable
+            onPress={() => router.push('/profile')}
+            className="w-10 h-10 rounded-full bg-green-600 items-center justify-center"
+          >
+            <Text className="text-white font-bold text-base">{initials}</Text>
+          </Pressable>
+          <Text className="text-xl font-bold text-gray-900">Market</Text>
+          <View className="w-10" />
         </View>
 
         {/* Tab pills */}
@@ -152,10 +186,14 @@ export default function MarketplaceScreen() {
           ] as { id: Tab; label: string }[]).map(tab => (
             <Pressable
               key={tab.id}
-              onPress={() => setActiveTab(tab.id)}
-              className={`flex-1 py-2 rounded-lg items-center ${activeTab === tab.id ? 'bg-white shadow-sm' : ''}`}
+              onPress={() => setActiveInnerTab(tab.id)}
+              className="flex-1 py-2 rounded-lg items-center"
+              style={activeTab === tab.id ? { backgroundColor: 'white' } : undefined}
             >
-              <Text className={`text-sm font-semibold ${activeTab === tab.id ? 'text-gray-900' : 'text-gray-500'}`}>
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: activeTab === tab.id ? '#111827' : '#6b7280' }}
+              >
                 {tab.label}
               </Text>
             </Pressable>
@@ -168,21 +206,10 @@ export default function MarketplaceScreen() {
         showsVerticalScrollIndicator={false}
         key={activeTab}
       >
-        {activeTab === 'community' ? (
-          <>
-            <Text className="text-sm text-gray-500 mb-4">
-              Curated by the Deck of WODs team
-            </Text>
-            <View className="gap-3">
-              {COMMUNITY_DECKS.slice(0, 10).map((deck, i) => (
-                <CommunityDeckCard key={i} deck={deck} />
-              ))}
-            </View>
-          </>
-        ) : (
-          <PartnerOffersTab />
-        )}
+        {activeTab === 'community' && (<CommunityTab />)}
+        
+        {activeTab === 'partners' && (<PartnerOffersTab />)}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   )
 }

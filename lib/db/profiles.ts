@@ -11,6 +11,7 @@ export interface ProfileRow {
   step_goal: number
   calorie_goal: number
   active_minutes_goal: number
+  weekly_workout_goal: number
   date_of_birth: string | null   // YYYY-MM-DD
   biological_sex: 'male' | 'female' | 'other' | null
   maf_adjustment: -10 | -5 | 0 | 5
@@ -30,6 +31,7 @@ export interface UpdateProfileInput {
   step_goal?: number
   calorie_goal?: number
   active_minutes_goal?: number
+  weekly_workout_goal?: number
   date_of_birth?: string | null
   biological_sex?: 'male' | 'female' | 'other' | null
   maf_adjustment?: -10 | -5 | 0 | 5

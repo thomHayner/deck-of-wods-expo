@@ -63,3 +63,13 @@ export async function getDeckSessions(): Promise<DeckSessionRow[]> {
   if (error) throw error
   return data ?? []
 }
+
+export async function getDeckSessionById(id: string): Promise<DeckSessionRow | null> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('deck_sessions')
+    .select('*')
+    .eq('id', id)
+    .single()
+  return data ?? null
+}

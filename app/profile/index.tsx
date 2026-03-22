@@ -140,6 +140,7 @@ export default function ProfileScreen() {
   const [stepGoal, setStepGoal]               = useState('10000')
   const [calorieGoal, setCalorieGoal]         = useState('500')
   const [activeMinutesGoal, setActiveMinutesGoal] = useState('30')
+  const [weeklyWorkoutGoal, setWeeklyWorkoutGoal] = useState('3')
   const [savingGoals, setSavingGoals]         = useState(false)
 
   // Units
@@ -166,6 +167,7 @@ export default function ProfileScreen() {
     setStepGoal(String(p.step_goal))
     setCalorieGoal(String(p.calorie_goal))
     setActiveMinutesGoal(String(p.active_minutes_goal ?? 30))
+    setWeeklyWorkoutGoal(String(p.weekly_workout_goal ?? 3))
     const sys: 'metric' | 'imperial' =
       p.unit_system ?? (p.weight_unit === 'pounds' ? 'imperial' : 'metric')
     setUnitSystem(sys)
@@ -199,6 +201,7 @@ export default function ProfileScreen() {
       step_goal:            Number(stepGoal)            || 10000,
       calorie_goal:         Number(calorieGoal)         || 500,
       active_minutes_goal:  Number(activeMinutesGoal)   || 30,
+      weekly_workout_goal:  Number(weeklyWorkoutGoal)   || 3,
     }).catch(console.error)
     setSavingGoals(false)
   }
@@ -577,6 +580,7 @@ export default function ProfileScreen() {
             <InputRow label="Daily Step Goal"           value={stepGoal}          onChangeText={setStepGoal}          placeholder="10000" />
             <InputRow label="Daily Active Calorie Goal" value={calorieGoal}       onChangeText={setCalorieGoal}       placeholder="500" />
             <InputRow label="Daily Active Minutes Goal" value={activeMinutesGoal} onChangeText={setActiveMinutesGoal} placeholder="30" />
+            <InputRow label="Weekly Workout Goal"       value={weeklyWorkoutGoal} onChangeText={setWeeklyWorkoutGoal} placeholder="3" suffix="workouts/wk" />
             <SaveButton onPress={handleSaveGoals} saving={savingGoals} label="Save Goals" />
           </CardContent>
         </Card>

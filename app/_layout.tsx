@@ -19,8 +19,11 @@ export default function RootLayout() {
       setSession(session)
     })
 
-    // Listen for sign-in / sign-out events
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Listen for auth state changes, but ignore silent token refreshes.
+    // TOKEN_REFRESHED updates the session object without changing auth status;
+    // letting it through would call router.replace and reset all tab state.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') return
       setSession(session)
     })
 
@@ -49,6 +52,7 @@ export default function RootLayout() {
           <Stack.Screen name="profile/index" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="history/index" options={{ headerShown: false }} />
           <Stack.Screen name="deck-builder" options={{ headerShown: false }} />
+          <Stack.Screen name="workout-detail/[id]" options={{ headerShown: false }} />
         </Stack>
         <StatusBar style="auto" />
         <Toast />

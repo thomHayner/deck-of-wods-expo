@@ -51,3 +51,13 @@ export async function getFreeSessions(): Promise<FreeSessionRow[]> {
   if (error) throw error
   return data ?? []
 }
+
+export async function getFreeSessionById(id: string): Promise<FreeSessionRow | null> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('free_sessions')
+    .select('*')
+    .eq('id', id)
+    .single()
+  return data ?? null
+}
